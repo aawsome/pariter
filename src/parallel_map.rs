@@ -5,11 +5,26 @@ use super::{DropIndicator, Scope};
 use std::{
     cmp,
     collections::HashMap,
+    hash::{BuildHasherDefault, Hasher},
     sync::{
         atomic::{AtomicBool, Ordering::SeqCst},
         Arc,
     },
 };
+
+/// a very simple and efficient Hasher
+#[derive(Default)]
+struct EfficientHasher([u8; 8]);
+
+impl Hasher for EfficientHasher {
+    fn finish(&self) -> u64 {
+        u64::from_ne_bytes(self.0)
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        let len = bytes.len().max(8);
+        self.0[..len].copy_from_slice(&bytes[..len]);
+    }
+}
 
 struct ParallelMapInner<I, O> {
     tx: Option<crossbeam_channel::Sender<(usize, I)>>,
@@ -90,7 +105,7 @@ where
                 worker_panicked: Arc::new(AtomicBool::new(false)),
                 num_threads,
                 buffer_size,
-                out_of_order: HashMap::new(),
+                out_of_order: HashMap::default(),
                 next_tx_i: 0,
                 next_rx_i: 0,
                 inner: Some(ParallelMapInner {
@@ -186,7 +201,7 @@ where
     /// did any worker thread failed us
     worker_panicked: Arc<AtomicBool>,
     /// responses we received before we needed them
-    out_of_order: HashMap<usize, O>,
+    out_of_order: HashMap<usize, O, BuildHasherDefault<EfficientHasher>>,
     // stuff we created when we started workers
     inner: Option<ParallelMapInner<I::Item, O>>,
 }
